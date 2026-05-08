@@ -16,10 +16,11 @@
     <p align="center">
         <a href="http://arxiv.org/abs/"><img src='https://img.shields.io/badge/Paper-PDF-red?style=flat&logo=arXiv&logoColor=red' alt='Paper PDF'></a>
         <a href="https://huggingface.co/Oscar-dzy/CoLVR-VSP" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Model-CoLVR_VSP-ffc107?color=ffc107&logoColor=white" height="20" /></a>
-        <a href="https://huggingface.co" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Dataset-CoLVR_VSP_Benchmark-ffc107?color=ffc107&logoColor=white" height="20" /></a>
+        <a href="https://huggingface.co/datasets/Oscar-dzy/CoLVR-VSP_bench" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Dataset-CoLVR_VSP_Benchmark-ffc107?color=ffc107&logoColor=white" height="20" /></a>
 <p align="center">
     <img src="assets/framework.png" alt="Logo" width="90%">
 </p>
+
 
 
 we propose **CoLVR** (**C**ontrastive **O**ptimization for **L**atent **V**isual **R**easoning), a latent contrastive training framework toward more flexible and exploratory visual reasoning. CoLVR optimizes relative contrastive relationships among latent visual states, thereby preserving the freedom of latent exploration while still providing task-relevant supervision.
@@ -28,7 +29,7 @@ we propose **CoLVR** (**C**ontrastive **O**ptimization for **L**atent **V**isual
 
 ## :fire: News
 * **[2026.05.12]**  Our paper is now available on ArXiv.
-* **[2026.05.10]**  We released the inference code, as well as the model checkpoints and VSP Benchmark on Hugging Face (Training code and training datasets will be released upon paper acceptance). 
+* **[2026.05.10]**  We released the inference code, as well as the [model checkpoints](https://huggingface.co/Oscar-dzy/CoLVR-VSP) and [VSP Benchmark](https://huggingface.co/datasets/Oscar-dzy/CoLVR-VSP_bench) on Hugging Face (Training code and training datasets will be released upon paper acceptance). 
 
 
 
@@ -84,7 +85,7 @@ pip install -e ./src/transformers/.
 
 ## :books: Data Preparation
 
-You can download VSP Benchmark from this link, including Seen and Unseen.
+You can download VSP Benchmark from [this link](https://huggingface.co/datasets/Oscar-dzy/CoLVR-VSP_bench), including Seen and Unseen.
 
 You can also download VSP benchmark (seen: level 3~6) in [Mirage](https://github.com/UMass-Embodied-AGI/Mirage#data-preparation).
 
