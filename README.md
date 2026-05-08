@@ -17,10 +17,10 @@
         <a href="http://arxiv.org/abs/"><img src='https://img.shields.io/badge/Paper-PDF-red?style=flat&logo=arXiv&logoColor=red' alt='Paper PDF'></a>
         <a href="https://huggingface.co/Oscar-dzy/CoLVR-VSP" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Model-CoLVR_VSP-ffc107?color=ffc107&logoColor=white" height="20" /></a>
         <a href="https://huggingface.co" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Dataset-CoLVR_VSP_Benchmark-ffc107?color=ffc107&logoColor=white" height="20" /></a>
-
 <p align="center">
-    <img src="assets/framework.png" alt="Logo" width="70%">
+    <img src="assets/framework.png" alt="Logo" width="100%">
 </p>
+
 
 we propose **CoLVR** (**C**ontrastive **O**ptimization for **L**atent **V**isual **R**easoning), a latent contrastive training framework toward more flexible and exploratory visual reasoning. CoLVR optimizes relative contrastive relationships among latent visual states, thereby preserving the freedom of latent exploration while still providing task-relevant supervision.
 
