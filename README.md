@@ -43,28 +43,26 @@ Due to the potential for exploratory reasoning of Latent Visual Reasoning, recen
   <summary>Tabel of Contents</summary>
   <ol>
     <li>
-      <a href="#environment">Environment</a>
+      <a href="#microscope-environment">Environment</a>
     </li>
     <li>
-      <a href="#data-preparation">Data Preparation</a>
+      <a href="#books-data-preparation">Data Preparation</a>
     </li>
     <li>
-      <a href="#Checkpoints">Checkpoints</a>
+      <a href="#package-checkpoints">Checkpoints</a>
     </li>
     <li>
-      <a href="#inference">Inference</a>
+      <a href="#rocket-inference">Inference</a>
     </li>
     <li>
-      <a href="#citation">Citation</a>
+      <a href="#pen-citation">Citation</a>
     </li>
     <li>
-      <a href="#acknowledgement">Acknowledgement</a>
-    </li>
-    <li>
-      <a href="#License">License</a>
+      <a href="#pray-acknowledgement">Acknowledgement</a>
     </li>
   </ol>
 </details>
+
 
 
 
