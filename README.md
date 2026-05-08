@@ -86,7 +86,7 @@ pip install -e ./src/transformers/.
 
 You can download VSP Benchmark from this link, including Seen and Unseen.
 
-You can also download VSP benchmark (seen: level 3~6) in [Mirage](https://github.com/UMass-Embodied-AGI/Mirage#data-preparation)).
+You can also download VSP benchmark (seen: level 3~6) in [Mirage](https://github.com/UMass-Embodied-AGI/Mirage#data-preparation).
 
 
 
