@@ -18,7 +18,7 @@
         <a href="https://huggingface.co/Oscar-dzy/CoLVR-VSP" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Model-CoLVR_VSP-ffc107?color=ffc107&logoColor=white" height="20" /></a>
         <a href="https://huggingface.co" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Dataset-CoLVR_VSP_Benchmark-ffc107?color=ffc107&logoColor=white" height="20" /></a>
 <p align="center">
-    <img src="assets/framework.png" alt="Logo" width="100%">
+    <img src="assets/framework.png" alt="Logo" width="90%">
 </p>
 
 
