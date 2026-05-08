@@ -29,7 +29,7 @@ we propose **CoLVR** (**C**ontrastive **O**ptimization for **L**atent **V**isual
 
 ## :fire: News
 * **[2026.05.12]**  Our paper is now available on ArXiv.
-* **[2026.05.10]**  We released the inference code, as well as the [model checkpoints](https://huggingface.co/Oscar-dzy/CoLVR-VSP) and [VSP Benchmark](https://huggingface.co/datasets/Oscar-dzy/CoLVR-VSP_bench) on Hugging Face (Training code and training datasets will be released upon paper acceptance). 
+* **[2026.05.10]**  We released the inference code, as well as the [model checkpoints](https://huggingface.co/Oscar-dzy/CoLVR-VSP) and [VSP Benchmark](https://huggingface.co/datasets/Oscar-dzy/CoLVR-VSP_bench) on Hugging Face (Training code, training datasets and other tasks will be released upon paper acceptance). 
 
 
 
@@ -72,8 +72,8 @@ Due to the potential for exploratory reasoning of Latent Visual Reasoning, recen
 You can run the following command according to the evaluation environment:
 
 ```
-conda create -n colvr_eval python==3.10
-conda activate colvr_eval
+conda create -n colvr python==3.10
+conda activate colvr
 
 git clone https://github.com/Oscar-dzy/CoLVR.git
 cd CoLVR
@@ -91,6 +91,32 @@ You can also download VSP benchmark (seen: level 3~6) in [Mirage](https://github
 
 
 
+**Expected Directory Structure:**
+
+```text
+CoLVR/
+├── data/
+│   ├── CoLVR-VSP_bench/
+│   	├── imgs_test_unseen/
+│   	├── test_direct-seen.json
+│		└── test_direct-unseen.json
+|		└── imgs_test_seen/
+|			├── level3
+|			└── ...
+|		└── imgs_test_unseen/
+|			├── level7
+|			└── level8
+├── src/
+│	├── transformers/
+│	├── test.py
+│	├── utils.py
+│	└── task.py
+├── test.sh
+└── README.md
+```
+
+
+
 ## :package: Checkpoints
 
 You can download the CoLVR model trained on the VSP task from [this repo](https://huggingface.co/Oscar-dzy/CoLVR-VSP).
@@ -98,6 +124,14 @@ You can download the CoLVR model trained on the VSP task from [this repo](https:
 
 
 ## :rocket: Inference
+
+1. Set the `model_path` parameter in `./test.sh` to the path of the CoLVR-VSP model.
+
+2. Run the following command to evaluate the VSP task:
+
+   ```bash
+   bash test.sh
+   ```
 
 
 
