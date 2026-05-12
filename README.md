@@ -14,7 +14,7 @@
       </p>
     </p>
     <p align="center">
-        <a href="http://arxiv.org/abs/"><img src='https://img.shields.io/badge/Paper-PDF-red?style=flat&logo=arXiv&logoColor=red' alt='Paper PDF'></a>
+        <a href="https://arxiv.org/abs/2605.08802"><img src='https://img.shields.io/badge/Paper-PDF-red?style=flat&logo=arXiv&logoColor=red' alt='Paper PDF'></a>
         <a href="https://huggingface.co/Oscar-dzy/CoLVR-VSP" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Model-CoLVR_VSP-ffc107?color=ffc107&logoColor=white" height="20" /></a>
         <a href="https://huggingface.co/datasets/Oscar-dzy/CoLVR-VSP_bench" target="_blank" rel="noopener noreferrer"><img alt="HF Model: ViGaL" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Dataset-CoLVR_VSP_Benchmark-ffc107?color=ffc107&logoColor=white" height="20" /></a>
 <p align="center">
@@ -23,12 +23,13 @@
 
 
 
+
 we propose **CoLVR** (**C**ontrastive **O**ptimization for **L**atent **V**isual **R**easoning), a latent contrastive training framework toward more flexible and exploratory visual reasoning. CoLVR optimizes relative contrastive relationships among latent visual states, thereby preserving the freedom of latent exploration while still providing task-relevant supervision.
 
 
 
 ## :fire: News
-* **[2026.05.12]**  Our paper is now available on ArXiv.
+* **[2026.05.12]**  Our paper is now available on [ArXiv](https://arxiv.org/abs/2605.08802).
 * **[2026.05.10]**  We released the inference code, as well as the [model checkpoints](https://huggingface.co/Oscar-dzy/CoLVR-VSP) and [VSP Benchmark](https://huggingface.co/datasets/Oscar-dzy/CoLVR-VSP_bench) on Hugging Face (Training code, training datasets and other tasks will be released upon paper acceptance). 
 
 
@@ -142,7 +143,15 @@ You can download the CoLVR model trained on the VSP task from [this repo](https:
 If you find this work useful, please use the following BibTeX. Thank you for your support!
 
 ```latex
-
+@misc{ding2026colvrenhancingexploratorylatent,
+      title={CoLVR: Enhancing Exploratory Latent Visual Reasoning via Contrastive Optimization}, 
+      author={Ziyang Ding and Linjian Meng and Yiming Wu and Yuhan Li and Yuhao Liu and Zhen Zhao},
+      year={2026},
+      eprint={2605.08802},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2605.08802}, 
+}
 ```
 
 
