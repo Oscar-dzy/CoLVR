@@ -28,6 +28,7 @@ we propose **CoLVR** (**C**ontrastive **O**ptimization for **L**atent **V**isual
 
 
 ## :fire: News
+* **[2026.09.25]**  Our paper has been accepted to **NeurIPS 2026 as a poster** ! 🎉 Many thanks to our advisors and collaborators for their support. Training code and data will be released gradually.
 * **[2026.05.12]**  Our paper is now available on ArXiv.
 * **[2026.05.10]**  We released the inference code, as well as the [model checkpoints](https://huggingface.co/Oscar-dzy/CoLVR-VSP) and [VSP Benchmark](https://huggingface.co/datasets/Oscar-dzy/CoLVR-VSP_bench) on Hugging Face (Training code, training datasets and other tasks will be released upon paper acceptance). 
 
