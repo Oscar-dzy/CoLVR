@@ -1,7 +1,7 @@
 import torch
 from typing import Optional
 from collections import defaultdict
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, Qwen2_5_VLConfig
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, Qwen2_5_VLConfig, AutoModel, AutoTokenizer
 import os
 import re
 import json
@@ -20,19 +20,14 @@ from utils import *
 from task import *
 
 
-seed_everything(seed=42)
+seed_everything(seed=42)  # 50
 args=get_args()
-
 
 
 def extract_boxed_format(ans: str) -> Optional[str]:
     """
-    Extract the string inside ``\\boxed{...}``. By default, use the **first**
-    match (consistent with the previous behavior).
-
-    When ``--eval_cot`` is enabled, use the **last** match, so earlier reasoning
-    may contain multiple steps while the final answer appears in the trailing
-    ``\\boxed{}``.
+    Extract the string inside ``\\boxed{...}``. By default take the **first** match (same as the previous behavior).
+    When ``--eval_cot`` is set, take the **last** match so earlier spans can hold intermediate reasoning and the final answer sits in the trailing ``\\boxed{}``.
     """
     if not ans:
         return None
@@ -42,8 +37,6 @@ def extract_boxed_format(ans: str) -> Optional[str]:
         return None
     idx = -1 if getattr(args, "eval_cot", False) else 0
     return matches[idx].group(1)
-
-
 
 
 
@@ -64,6 +57,10 @@ logging.info('=='*20)
 # Load the model and processor
 cache_dir = args.cache_dir
 os.environ['HF_HOME'] = cache_dir
+
+processor = None
+config = None
+internvl_tokenizer = None
 
 processor = AutoProcessor.from_pretrained(args.load_model_path, trust_remote_code=True, cache_dir=cache_dir)
 config = Qwen2_5_VLConfig.from_pretrained(args.load_model_path)
@@ -100,13 +97,14 @@ def run_one_inference(sample):
     conversations = preprocess_function(sample)  # List
 
     if args.eval_cot:
-        if args.task == "vsp-spatial-planning":
-            conversations[-1]['content'][1]['text'] = conversations[-1]['content'][1]['text'] + " " + "Let's think step by step."
+        if args.task == "tertis":
+            conversations[-1]['content'][1]['text'] = conversations[-1]['content'][1]['text'].split("Give only the final option")[0] + "The final option is wrapped in \\boxed{}. Let's think step by step."
+        elif args.task == "jigsaw":
+            conversations[-1]['content'][1]['text'] = conversations[-1]['content'][1]['text'].split("Give only the final answer")[0] + "The final answer is wrapped in \\boxed{}. Let's think step by step."
         else:
-            raise ValueError(f"Task {args.task} eval_cot not supported")
-            
-        # print(conversations[-1]['content'][1]['text'])
-        # print("="*100)
+            conversations[-1]['content'][1]['text'] = conversations[-1]['content'][1]['text'] + " " + "Let's think step by step."
+        print(conversations[-1]['content'][1]['text'])
+        print("="*100)
 
     texts = [processor.apply_chat_template(conversations, tokenize=False, add_generation_prompt=True)]
     # texts = [place_input_image(text, sep_token=None) for text in texts]
@@ -133,13 +131,6 @@ def run_one_inference(sample):
     decoded_output = processor.tokenizer.decode(output_ids[0], skip_special_tokens=False)
     answer = decoded_output.split('<|im_start|>assistant')[-1]
 
-    # generated_ids_trimmed = [
-    #     out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, output_ids)
-    # ]
-    # answer = processor.batch_decode(
-    #     generated_ids_trimmed, skip_special_tokens=False, clean_up_tokenization_spaces=False
-    # )[0]
-
     if args.output_response:
         print(answer)
 
@@ -149,6 +140,7 @@ def run_one_inference(sample):
 def eval_vsp():
     correct, invalid = 0, 0
     results_level = {}
+
     for i, sample in tqdm(enumerate(data)):
         if "level7" in sample['image_input'] or "level8" in sample['image_input']:
             level = sample['image_input'].split("/")[-2]
@@ -196,12 +188,140 @@ def eval_vsp():
         logging.info(f"[{level}] Accuracy: {result['correct']}/{result['total']} ({result['correct']/result['total']:.3f})")
 
 
+def eval_jigsaw():
+    total = len(data)
+    success_total = 0
+    fail_7b_response = 0
+    results_cate = {}
+    results = []
+    
+    for i, sample in enumerate(tqdm(data)):
+        results_cate = {}
+        
+        answer, output_ids, hidden_states, attentions, grid_thw = run_one_inference(sample)
+        _, grid_h, grid_w = grid_thw
+
+        if "\\boxed" in answer:
+            answer_norm = extract_boxed_format(answer)
+        else:
+            fail_7b_response += 1
+            answer_norm = answer
+
+        gt = sample.get("text_output", "")
+        if "\\boxed" in gt:
+            gt_norm = extract_boxed_format(gt)
+        else:
+            gt_norm = gt
+
+        # print(f"answer_norm: {answer_norm}")
+        # print(f"gt_norm: {gt_norm}")
+        ok = (answer_norm == gt_norm)
+        if ok: 
+            success_total += 1
+        
+        results.append({
+            "index": i,
+            "task": args.task,
+            "pred": answer,
+            "pred_norm": answer_norm,
+            "gt": gt,
+            "match": bool(ok)
+        })
+
+        if (i + 1) % 10 == 0 or (i + 1) == total:
+            log_message = f"[{i+1}/{total}] Accuracy: {success_total}/{i+1} ({success_total/(i+1):.4f})"
+            if "Qwen2.5-VL-7B" in args.load_model_path:
+                 log_message += f" (Fail nums: {fail_7b_response}/{total})"
+
+            logging.info(log_message)
+            
+    acc = success_total / total
+    metrics = {}
+
+    logging.info(f"[Final] Accuracy: {success_total}/{total} ({acc:.4f})")
+
+    metrics["ACC"] = acc
+
+    os.makedirs(args.output_results_dir, exist_ok=True)
+
+    with open(f"{args.output_results_dir}/results.json", "w") as fout:
+        json.dump(results, fout, indent=4)
+
+    with open(f"{args.output_results_dir}/metrics.json", "w") as fout:
+        json.dump(metrics, fout, indent=4)
+
+
+def eval_tertis():
+    total = len(data)
+    success_total = 0
+    fail_7b_response = 0
+    results_cate = {}
+    results = []
+    
+    for i, sample in enumerate(tqdm(data)):
+        results_cate = {}
+        
+        answer, output_ids, hidden_states, attentions, grid_thw = run_one_inference(sample)
+        _, grid_h, grid_w = grid_thw
+
+        if "\\boxed" in answer:
+            answer_norm = extract_boxed_format(answer)
+        else:
+            fail_7b_response += 1
+            answer_norm = answer
+
+        gt = sample.get("text_output", "")
+        if "\\boxed" in gt:
+            gt_norm = extract_boxed_format(gt)
+        else:
+            gt_norm = gt
+
+        # print(f"answer_norm: {answer_norm}")
+        # print(f"gt_norm: {gt_norm}")
+        ok = (answer_norm == gt_norm)
+        if ok: 
+            success_total += 1
+        
+        results.append({
+            "index": i,
+            "task": args.task,
+            "pred": answer,
+            "pred_norm": answer_norm,
+            "gt": gt,
+            "match": bool(ok)
+        })
+
+        if (i + 1) % 10 == 0 or (i + 1) == total:
+            log_message = f"[{i+1}/{total}] Accuracy: {success_total}/{i+1} ({success_total/(i+1):.4f})"
+            if "Qwen2.5-VL-7B" in args.load_model_path:
+                 log_message += f" (Fail nums: {fail_7b_response}/{total})"
+
+            logging.info(log_message)
+            
+    acc = success_total / total
+    metrics = {}
+
+    logging.info(f"[Final] Accuracy: {success_total}/{total} ({acc:.4f})")
+
+    metrics["ACC"] = acc
+
+    
+    os.makedirs(args.output_results_dir, exist_ok=True)
+
+    with open(f"{args.output_results_dir}/results.json", "w") as fout:
+        json.dump(results, fout, indent=4)
+
+    with open(f"{args.output_results_dir}/metrics.json", "w") as fout:
+        json.dump(metrics, fout, indent=4)
+
 
 def main():
     if args.task == "vsp-spatial-planning":
         eval_vsp()
-    else:
-        raise ValueError(f"Task {args.task} not supported")
+    elif args.task == "jigsaw":
+        eval_jigsaw()
+    elif args.task == "tertis":
+        eval_tertis()
 
 
 if __name__ == "__main__":

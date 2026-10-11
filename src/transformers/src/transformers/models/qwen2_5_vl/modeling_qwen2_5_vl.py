@@ -1662,9 +1662,7 @@ class Qwen2_5_VLCausalLMOutputWithPast(ModelOutput):
     startState_embeds_group_pool: Optional[torch.FloatTensor] = None
     endState_embeds_group_pool: Optional[torch.FloatTensor] = None
     best_repeat_hidden_state: Optional[torch.FloatTensor] = None
-    # ed2_1: 每层 latent 在指定 decoder 层上的 hidden states，shape [latent_size, 5, batch, hidden_dim]
     latent_ed21_multi_layer_hidden_states: Optional[torch.FloatTensor] = None
-    # ed1_14 / ed1_15 / ed1_16 / ed1_18: decoder 最后一层自注意力下，各 latent 步对 image token 的归一化权重熵，形状 [batch, n_latents]
     ed114_decoder_attn_entropy: Optional[torch.FloatTensor] = None
 
 
@@ -1746,7 +1744,7 @@ QWEN2_5_VL_INPUTS_DOCSTRING = r"""
 
 class LatentProjection(nn.Module):
     """
-    hidden states的投影层
+    Projection layer for hidden states.
     """
     def __init__(self, in_dim, out_dim):
         super(LatentProjection, self).__init__()
@@ -1986,13 +1984,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
 
             return position_ids, mrope_position_deltas
 
-    def cal_attention(self, q, k, v):
-        _, dim, D = q.shape
-        attn_logits = torch.matmul(q, k.transpose(-1, -2)) / math.sqrt(D)  # [batch, out_dim, num_patch]
-        attn = F.softmax(attn_logits, dim=-1)  # [batch, out_dim, num_patch]
-        out = torch.matmul(attn, v)  # [batch, out_dim, hidden_dim]
-
-        return out, attn
 
     def get_state_latent_embeds(
         self, 
@@ -2020,138 +2011,10 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
             latent_image_embeds = latent_image_embeds.view(-1, hidden_dim)  # [batch, hidden_dim]
 
             return latent_image_embeds
-        elif self.model.config.progressive_strategy == "attention":  # group pool + attention
-            """
-            hidden_states_proj: torch.Size([batch, out_dim, hidden_dim])
-            """
-            if hidden_states_proj is None:
-                raise("Progressive strategy Error:  hidden_states_proj is None")
-
-            assert hidden_states_proj.shape[0] == batch_size
-
-            latent_image_embeds = latent_image_embeds.view(batch_size, -1, hidden_dim)  # [batch, patches, hidden_dim]
-            Q = self.w_q(hidden_states_proj)
-            K = self.w_k(latent_image_embeds)
-            V = self.w_v(latent_image_embeds)
-            latent_image_embeds_attn, attn_score = self.cal_attention(Q, K, V)  # latent_image_embeds_attn: [batch, out_dim, hidden_dim]
-
-            # group pool
-            num_groups = hidden_states_proj.shape[1]
-            
-            res = latent_image_embeds.shape[1] % num_groups
-            if res > 0: latent_image_embeds = latent_image_embeds[:, :-res, :]
-            assert latent_image_embeds.shape[1] % num_groups == 0
-
-            group_size = latent_image_embeds.shape[1] // num_groups
-            chunks = torch.split(latent_image_embeds, group_size, dim=1)
-            chunk_means = [c.mean(dim=1, keepdim=True) for c in chunks]
-            latent_image_embeds = torch.cat(chunk_means, dim=1).contiguous()
-            latent_image_embeds_group_pool = latent_image_embeds.view(-1, hidden_dim)  # [batch_size * group_size, hidden_dim]
-
-            return latent_image_embeds_group_pool, latent_image_embeds_attn, attn_score
         else:
             raise KeyError("get_state_latent_embeds funcation error")
-
-    def get_state_by_eos_compression(
-        self,
-        state: torch.FloatTensor,
-        state_thw: torch.LongTensor,
-        state_input_ids: torch.LongTensor,
-        state_attention_mask: torch.Tensor,
-    ) -> torch.FloatTensor:
-        """
-        ed1_7: Obtain the state (startState or endState) using the MLLM compression mechanism.
-
-        Insert <EOS> after the last image token, and use the last hidden state
-        corresponding to <EOS> as the compressed representation of the state.
-        """
-        state_input_ids = state_input_ids.to(torch.long)
-        state = state.type(self.visual.dtype)
-        image_embeds = self.visual(state, grid_thw=state_thw)
-
-        batch_size = state_input_ids.shape[0]
-        n_image_tokens = (state_input_ids == self.config.image_token_id).sum().item()
-        n_image_features = image_embeds.shape[0]
-        hidden_dim = image_embeds.shape[-1]
-
-        if n_image_tokens != n_image_features:
-            assert n_image_tokens < n_image_features
-            assert n_image_tokens % batch_size == 0
-            image_embeds = image_embeds.view(batch_size, -1, hidden_dim)
-            image_embeds = image_embeds[:, :n_image_tokens // batch_size, :].contiguous()
-            image_embeds = image_embeds.view(-1, hidden_dim)
-
-        inputs_embeds = self.model.embed_tokens(state_input_ids)
-        mask = state_input_ids == self.config.image_token_id
-        mask_expanded = mask.unsqueeze(-1).expand_as(inputs_embeds).to(inputs_embeds.device)
-        image_embeds = image_embeds.to(inputs_embeds.device, inputs_embeds.dtype)
-        inputs_embeds = inputs_embeds.masked_scatter(mask_expanded, image_embeds)
-
-        position_ids, _ = self.get_rope_index(
-            state_input_ids,
-            state_thw,
-            video_grid_thw=None,
-            second_per_grid_ts=None,
-            attention_mask=state_attention_mask,
-        )
-
-        is_gc_enabled = getattr(self.model, "gradient_checkpointing", False)
-        if is_gc_enabled:
-            self.model.gradient_checkpointing = False
-
-        outputs = self.model(
-            input_ids=None,
-            inputs_embeds=inputs_embeds,
-            attention_mask=state_attention_mask.to(inputs_embeds.device),
-            position_ids=position_ids,
-            use_cache=False,
-            output_attentions=False,
-            output_hidden_states=False,
-            return_dict=True,
-        )
-
-        if is_gc_enabled:
-            self.model.gradient_checkpointing = True
-
-        hidden_states = outputs[0]
-        eos_hidden = hidden_states[:, -1, :]
-        return eos_hidden.to(state.device, state.dtype)
-
-    def fit_diag_gaussian_batch(self, x: torch.Tensor, eps=1e-6):
-        """
-        x: [B, 1, D]
-        return mu [B, D], var [B, D]
-        """
-        mu = x.mean(dim=1)
-        var = x.var(dim=1, unbiased=False) + eps
-        return mu, var
-
-    def kl_diag_gaussian_batch(self, mu1, var1, mu2, var2):
-        """
-        KL for batch of diagonal Gaussians
-        All inputs: [B, D]
-        Return: [B]
-        """
-        term1 = torch.log(var2 / var1)
-        term2 = (var1 + (mu1 - mu2) ** 2) / var2
-        kl = 0.5 * torch.sum(term1 + term2 - 1, dim=-1)  # sum over D
-        return kl  # [B]
-
-    def js_diag_gaussian_batch(self, mu_p, var_p, mu_q, var_q):
-        """
-        JS divergence for each batch element
-        """
-        mu_m = 0.5 * (mu_p + mu_q)                           # [B, D]
-        var_m = 0.5 * (var_p + var_q) + 0.25 * (mu_p - mu_q) ** 2
-
-        kl_pm = self.kl_diag_gaussian_batch(mu_p, var_p, mu_m, var_m)
-        kl_qm = self.kl_diag_gaussian_batch(mu_q, var_q, mu_m, var_m)
-
-        js = 0.5 * (kl_pm + kl_qm)  # [B]
-        return js
-
     
-    def latent_step_forward(self, step_embeds, step_mask, step_pos_ids, latent_token_pos_idx=None, ed114_input_ids_prefix=None):
+    def latent_step_forward(self, step_embeds, step_mask, step_pos_ids, latent_token_pos_idx=None):
         """
         One forward pass during the latent reasoning stage in training.
         """
@@ -2162,17 +2025,13 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
             # self.model.gradient_checkpointing_disable()
 
         need_all_hs = latent_token_pos_idx is not None
-        need_ed114 = ed114_input_ids_prefix is not None
-        if need_all_hs and need_ed114:
-            raise ValueError("latent_step_forward: ed1_14/ed1_15/ed1_18 (decoder attention entropy) and ed2_1 (multi-layer hidden states) cannot be enabled in the same forward pass; please configure them separately.")
-
         out = self.model(
             input_ids=None,
             inputs_embeds=step_embeds,
             attention_mask=step_mask,
             position_ids=step_pos_ids,
             use_cache=False,
-            output_attentions=need_ed114,  # In main.py, if eager attention is not enabled, it falls back to manual attention, which may result in some performance degradation.
+            output_attentions=False,  # In main.py, if eager attention is not enabled, it falls back to manual attention, which may result in some performance degradation.
             output_hidden_states=need_all_hs,
             return_dict=True
         )
@@ -2182,29 +2041,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
             # self.model.gradient_checkpointing_enable()
 
         last_hs = out.last_hidden_state
-
-        if need_ed114:
-            attn_last = out.attentions[-1]  # tuple(length = num_layers), each layer shape: [batch_size, num_heads, seq_len, seq_len]
-            # print(f"attn_last.shape: {attn_last.shape}")  # [batch_size, num_heads, seq_len, seq_len]
-            # print(f"step_embeds.shape: {step_embeds.shape}")  # [batch_size, seq_len, hidden_dim]
-            # print(f"ed114_input_ids_prefix.shape: {ed114_input_ids_prefix.shape}")  # [batch_size, seq_len]
-            # print("====================")
-            qpos = step_embeds.shape[1] - 1 
-            image_id = self.config.image_token_id
-            ent_list = []
-            for b in range(attn_last.shape[0]):
-                img_idx = (ed114_input_ids_prefix[b] == image_id).nonzero(as_tuple=True)[0]
-                if img_idx.numel() == 0:  # 等价于 len(img_idx) == 0
-                    print(f"!!! img_idx.numel() == 0 !!!")
-                    ent_list.append(torch.zeros((), device=last_hs.device, dtype=last_hs.dtype))
-                    continue
-                w_img = attn_last[b, :, qpos, img_idx].mean(dim=0)  # [num_heads, n_patch] -> [n_patch]
-                w_img = w_img / w_img.sum().clamp(min=1e-8)
-                H_b = -(w_img * w_img.clamp(min=1e-8).log()).sum()
-                ent_list.append(H_b)
-            ed114_H_batch = torch.stack(ent_list, dim=0)  # [batch_size]
-            # print(f"ed114_H_batch.shape: {ed114_H_batch.shape}")
-            return last_hs, ed114_H_batch
 
         if not need_all_hs:
             return last_hs
@@ -2422,17 +2258,8 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
                 startState_embeds_init = self.get_state_latent_embeds(input_ids, start_state, start_state_thw)
 
             if end_state is not None and self.model.config.progressive_strategy != "attention":  # NOTE(CoLVR)
-                contrastive_strategy = getattr(self.model.config, "contrastive_strategy", None)
-                if contrastive_strategy == "ed1_7" and start_state_input_ids is not None and start_state_attention_mask is not None and end_state_input_ids is not None and end_state_attention_mask is not None:
-                    startState_embeds = self.get_state_by_eos_compression(
-                        start_state, start_state_thw, start_state_input_ids, start_state_attention_mask
-                    )
-                    endState_embeds = self.get_state_by_eos_compression(
-                        end_state, end_state_thw, end_state_input_ids, end_state_attention_mask
-                    )
-                else:
-                    startState_embeds = self.get_state_latent_embeds(input_ids, start_state, start_state_thw)
-                    endState_embeds = self.get_state_latent_embeds(input_ids, end_state, end_state_thw)
+                startState_embeds = self.get_state_latent_embeds(input_ids, start_state, start_state_thw)
+                endState_embeds = self.get_state_latent_embeds(input_ids, end_state, end_state_thw)
                 startState_embeds = startState_embeds.to(start_state.device, start_state.dtype)
                 endState_embeds = endState_embeds.to(end_state.device, end_state.dtype)
                 # loss_latent = torch.tensor(0, device=startState_embeds.device, dtype=startState_embeds.dtype)
@@ -2460,211 +2287,9 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
         
 
         all_hidden_states = []
-        if self.config.stage == 'stage2-error' and not generate_mode:
-            
-            latent_indices = (input_ids == self.config.latent_token_id).nonzero()
-            latent_lists = [
-                [idx[1].item() for idx in latent_indices if idx[0] == i] for i in range(input_ids.shape[0])
-            ]
-            max_n_latents = max([len(latent_list) for latent_list in latent_lists])
-            
-            if max_n_latents != self.config.latent_size:
-                raise ValueError(
-                    f"Latent Image features and image tokens do not match: tokens: {max_n_latents}, features {self.config.latent_size}"
-                )
-            
-            next_compute_range = (0, latent_indices[:, 1].min().item())
-            
-            kv_cache = None
-            
-            for latent_i in range(max_n_latents):
-                
-                curr_inputs_embeds = inputs_embeds[:, next_compute_range[0] : next_compute_range[1], :]
-
-                if kv_cache == None:
-                    cache_position = torch.arange(next_compute_range[0], next_compute_range[1], device=inputs_embeds.device)
-                    position_ids, rope_deltas = self.get_rope_index(
-                    input_ids[:, next_compute_range[0] : next_compute_range[1]],
-                    image_grid_thw,
-                    video_grid_thw,
-                    second_per_grid_ts,
-                    attention_mask[
-                            :, next_compute_range[0] : next_compute_range[1]
-                        ],
-                    )
-                    self.rope_deltas = rope_deltas
-                    
-                    outputs = self.model(
-                        input_ids=None,
-                        position_ids=position_ids,
-                        attention_mask=attention_mask[
-                            :, next_compute_range[0] : next_compute_range[1]
-                        ],
-                        past_key_values=past_key_values,
-                        inputs_embeds=inputs_embeds[
-                            :, next_compute_range[0] : next_compute_range[1], :
-                        ],
-                        use_cache=True,
-                        output_attentions=output_attentions,
-                        output_hidden_states=output_hidden_states,
-                        return_dict=return_dict,
-                        cache_position=cache_position,
-                    )
-
-                else:
-                    cache_position = torch.arange(next_compute_range[0], next_compute_range[1], device=inputs_embeds.device)
-                    batch_size, seq_length, _ = curr_inputs_embeds.shape
-                    delta = (
-                        (cache_position[0] + self.rope_deltas).to(inputs_embeds.device)
-                        if cache_position is not None
-                        else 0
-                    )
-                    position_ids = torch.arange(seq_length, device=inputs_embeds.device)
-                    position_ids = position_ids.view(1, -1).expand(batch_size, -1)
-                    if cache_position is not None:  # otherwise `deltas` is an int `0`
-                        delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
-                    position_ids = position_ids.add(delta)
-                    position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
-                    
-                    
-                    
-                    outputs = self.model(
-                        input_ids=None,
-                        position_ids=position_ids,
-                        attention_mask=attention_mask[
-                            :, next_compute_range[0] : next_compute_range[1]
-                        ],
-                        past_key_values=kv_cache,
-                        inputs_embeds=inputs_embeds[
-                            :, next_compute_range[0] : next_compute_range[1], :
-                        ],
-                        use_cache=True,
-                        output_attentions=output_attentions,
-                        output_hidden_states=output_hidden_states,
-                        return_dict=return_dict,
-                        cache_position=cache_position,
-                    )
-
-                next_compute_range = (
-                    next_compute_range[1],
-                    (
-                        input_ids.shape[1]
-                        if latent_i + 1 >= max_n_latents
-                        else next_compute_range[1] + 1
-                    ),
-                )
-                
-                hidden_states = outputs[0]
-                all_hidden_states.append(hidden_states)
-                kv_cache = outputs.past_key_values
-                
-                hidden_states = hidden_states[:, -1:, :]
-                assert hidden_states.shape[1] == 1
-                
-                #replace the latent token with the output thought
-                filling_indices = [
-                    (instance_idx, mask_list[latent_i])
-                    for instance_idx, mask_list in enumerate(latent_lists)
-                    if len(mask_list) > latent_i
-                ]
- 
-                tensor_list = [
-                    [
-                        inputs_embeds[batch_idx, pos, :]
-                        for pos in range(inputs_embeds.shape[1])
-                    ]
-                    for batch_idx in range(inputs_embeds.shape[0])
-                ]
-  
-                # replace some of them with continuous thoughts
-                for idx_pair in filling_indices:
-                    batch_idx, token_idx = idx_pair  
-                    tensor_list[batch_idx][token_idx] = hidden_states[batch_idx][0]
-
-                #TODO: Multi GPU support
-                inputs_embeds = torch.stack(
-                    [
-                        torch.stack(tensor_list[batch_idx])
-                        for batch_idx in range(inputs_embeds.shape[0])
-                    ]
-                )
-                       
-            curr_inputs_embeds = inputs_embeds[:, next_compute_range[0] : next_compute_range[1], :]
-            cache_position = torch.arange(next_compute_range[0], next_compute_range[1], device=inputs_embeds.device)
-            batch_size, seq_length, _ = curr_inputs_embeds.shape
-            delta = (
-                (cache_position[0] + self.rope_deltas).to(inputs_embeds.device)
-                if cache_position is not None
-                else 0
-            )
-            position_ids = torch.arange(seq_length, device=inputs_embeds.device)
-            position_ids = position_ids.view(1, -1).expand(batch_size, -1)
-            if cache_position is not None:  # otherwise `deltas` is an int `0`
-                delta = delta.repeat_interleave(batch_size // delta.shape[0], dim=0)
-            position_ids = position_ids.add(delta)
-            position_ids = position_ids.unsqueeze(0).expand(3, -1, -1)
-            
-            outputs = self.model(
-                        input_ids=None,
-                        position_ids=position_ids,
-                        attention_mask=attention_mask[
-                            :, : next_compute_range[1]
-                        ],
-                        past_key_values=kv_cache,
-                        inputs_embeds=inputs_embeds[
-                            :, next_compute_range[0] : next_compute_range[1], :
-                        ],
-                        use_cache=True,
-                        output_attentions=output_attentions,
-                        output_hidden_states=output_hidden_states,
-                        return_dict=return_dict,
-                        cache_position=cache_position,
-                    )
-                
-            hidden_states = outputs[0]
-            all_hidden_states.append(hidden_states)
-            hidden_states = torch.cat(all_hidden_states, dim=1)
-            logits = self.lm_head(hidden_states)
-            
-            loss = None
-            if labels is not None:
-                # Upcast to float if we need to compute the loss to avoid potential precision issues
-                logits = logits.float()
-                # Shift so that tokens < n predict n
-                shift_logits = logits[..., :-1, :].contiguous()
-                shift_labels = labels[..., 1:].contiguous()
-                # Flatten the tokens
-                loss_fct = CrossEntropyLoss()
-                shift_logits = shift_logits.view(-1, self.config.vocab_size)
-                shift_labels = shift_labels.view(-1)
-                # Enable model parallelism
-                shift_labels = shift_labels.to(shift_logits.device)
-                loss = loss_fct(shift_logits, shift_labels)
-                
-            if not return_dict:
-                output = (logits,) + outputs[1:]
-                return (loss,) + output if loss is not None else output
-
-            
-            return Qwen2_5_VLCausalLMOutputWithPast(
-                loss=loss,
-                logits=logits,
-                past_key_values=outputs.past_key_values,
-                # hidden_states=outputs.hidden_states,
-                hidden_states=hidden_states,
-                attentions=outputs.attentions,
-                rope_deltas=self.rope_deltas,
-                inputs_embeds=inputs_embeds,
-            )
 
         if (self.config.stage == 'stage1-progressive' or self.config.stage == 'stage2-progressive' or self.config.stage == 'stage2-mirage') and not generate_mode: # Stage 1 (progressive): initialize the model's ability to imagine the starting state by feeding the last hidden states directly into inputs_embeds.
             # print(torch.cuda.memory_allocated() / 1024**2)
-            
-            if self.config.proj_strategy == 'split_dim':
-                hidden_states_split_dim_proj_list = []
-            elif self.config.proj_strategy == 'attention_split':
-                hidden_states_attention_split_proj_start_list = []
-                hidden_states_attention_split_proj_end_list = []
             
             latent_indices = (input_ids == self.config.latent_token_id).nonzero()
 
@@ -2691,17 +2316,8 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
             if self.training and not curr_inputs_embeds.requires_grad:
                 curr_inputs_embeds.requires_grad_(True)
 
-            # 遍历 latent tokens
+            # iterate over latent tokens
             all_hidden_states_seq = []
-            _cs = getattr(self.model.config, "contrastive_strategy", None)
-            collect_ed21 = _cs in ("ed2_1", "ed2_2", "ed2_3", "ed2_4")
-            collect_ed114 = _cs in ("ed1_14", "ed1_15", "ed1_16", "ed1_18")
-            if collect_ed21 and collect_ed114:
-                raise ValueError("contrastive_strategy cannot be set to both ed2_* and ed1_14/ed1_15/ed1_16/ed1_18 (they are incompatible in latent_step_forward).")
-            latent_ed21_list = []
-            latent_ed21_tensor = None
-            ed114_entropy_rows = []
-
 
             for latent_i in range(max_n_latents):
                 slice_start, slice_end = next_compute_range
@@ -2714,48 +2330,15 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
 
 
                 if self.training:
-                    if collect_ed21:
-                        hidden_full, ed21_multi = checkpoint(
-                            self.latent_step_forward,
-                            prefix_inputs,
-                            prefix_mask,
-                            prefix_pos_ids,
-                            cur_end - 1,
-                            use_reentrant=False,
-                        )  # ed21_multi shape: [5, batch, hidden_dim]
-                        latent_ed21_list.append(ed21_multi)
-                    elif collect_ed114:
-                        hidden_full, ed114_h_step = checkpoint(
-                            self.latent_step_forward,
-                            prefix_inputs,
-                            prefix_mask,
-                            prefix_pos_ids,
-                            None,
-                            input_ids[:, :cur_end],
-                            use_reentrant=False,
-                        )
-                        ed114_entropy_rows.append(ed114_h_step)
-                    else:
-                        hidden_full = checkpoint(
-                            self.latent_step_forward,
-                            prefix_inputs,
-                            prefix_mask,
-                            prefix_pos_ids,
-                            use_reentrant=False,
-                        )
+                    hidden_full = checkpoint(
+                        self.latent_step_forward,
+                        prefix_inputs,
+                        prefix_mask,
+                        prefix_pos_ids,
+                        use_reentrant=False,
+                    )
                 else:
-                    if collect_ed21:
-                        hidden_full, ed21_multi = self.latent_step_forward(
-                            prefix_inputs, prefix_mask, prefix_pos_ids, cur_end - 1
-                        )  # ed21_multi shape: [5, batch, hidden_dim]
-                        latent_ed21_list.append(ed21_multi)
-                    elif collect_ed114:
-                        hidden_full, ed114_h_step = self.latent_step_forward(
-                            prefix_inputs, prefix_mask, prefix_pos_ids, None, input_ids[:, :cur_end]
-                        )
-                        ed114_entropy_rows.append(ed114_h_step)
-                    else:
-                        hidden_full = self.latent_step_forward(prefix_inputs, prefix_mask, prefix_pos_ids)
+                    hidden_full = self.latent_step_forward(prefix_inputs, prefix_mask, prefix_pos_ids)
 
                 hidden_new = hidden_full[:, slice_start:slice_end, :]
                 all_hidden_states_seq.append(hidden_new)
@@ -2795,12 +2378,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
                     next_latent_pos = cur_end + 1
                     
                 next_compute_range = (cur_end, next_latent_pos)
-
-            if collect_ed21 and latent_ed21_list:
-                latent_ed21_tensor = torch.stack(latent_ed21_list, dim=0)  # shape: [latent_size, 5, batch, hidden_dim]
-
-            if collect_ed114 and ed114_entropy_rows:
-                ed114_decoder_attn_entropy = torch.stack(ed114_entropy_rows, dim=1)  # [batch, n_latents, 1]
 
             slice_start, slice_end = next_compute_range
             if slice_start < input_ids.shape[1]:
@@ -2919,8 +2496,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
                 rope_deltas=self.rope_deltas,
                 inputs_embeds=inputs_embeds,
                 startState_embeds_init=startState_embeds_init,
-                latent_ed21_multi_layer_hidden_states=latent_ed21_tensor if 'latent_ed21_tensor' in locals() else None,
-                ed114_decoder_attn_entropy=ed114_decoder_attn_entropy,
             )
     
         elif self.config.stage == 'stage2-progressive' and self.model.config.progressive_strategy == "meanPool" and not generate_mode:
@@ -2935,44 +2510,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
                 inputs_embeds=inputs_embeds,
                 startState_embeds=startState_embeds,
                 endState_embeds=endState_embeds,
-                latent_ed21_multi_layer_hidden_states=latent_ed21_tensor if 'latent_ed21_tensor' in locals() else None,
-                ed114_decoder_attn_entropy=ed114_decoder_attn_entropy,
-            )
-        
-        elif self.config.stage == 'stage2-progressive' and self.model.config.progressive_strategy == "attention" and not generate_mode:
-            batch_size = input_ids.shape[0]
-            hidden_states_proj_list = []
-
-            # 取出 latent 部分的 embeds
-            predict_embeddings = hidden_states
-            shift_image_mask = image_out_mask[:, -(predict_embeddings.shape[1] - 1) :].to(predict_embeddings.device)
-            hidden_states_latents = predict_embeddings[..., :-1, :][shift_image_mask.to(predict_embeddings.device) != 0].contiguous()
-
-            for latent_i in range(hidden_states_latents.shape[0]):
-                hidden_states_i = hidden_states_latents[latent_i, :]
-                hidden_states_i = hidden_states_i.view(batch_size, -1, hidden_states_latents.shape[1])
-
-                hidden_states_proj = self.latent_lm(hidden_states_i)  # [batch_size, out_dim, hidden_dim]
-                hidden_states_proj_list.append(hidden_states_proj)
-
-                startState_embeds_group_pool, startState_embeds, startState_score = self.get_state_latent_embeds(input_ids, start_state, start_state_thw, hidden_states_proj)
-                endState_embeds_group_pool, endState_embeds, endState_score = self.get_state_latent_embeds(input_ids, end_state, end_state_thw, hidden_states_proj)
-
-            return Qwen2_5_VLCausalLMOutputWithPast(
-                loss=loss,
-                logits=logits,
-                past_key_values=outputs.past_key_values if 'outputs' in locals() and hasattr(outputs, 'past_key_values') else None,
-                # hidden_states=outputs.hidden_states,
-                hidden_states=hidden_states,
-                attentions=outputs.attentions if 'outputs' in locals() and hasattr(outputs, 'attentions') else None,
-                rope_deltas=self.rope_deltas,
-                inputs_embeds=inputs_embeds,
-                hidden_states_proj_list=hidden_states_proj_list,
-                startState_embeds=startState_embeds,
-                endState_embeds=endState_embeds,
-                startState_embeds_group_pool=startState_embeds_group_pool,
-                endState_embeds_group_pool=endState_embeds_group_pool,
-                ed114_decoder_attn_entropy=ed114_decoder_attn_entropy,
             )
         else:
             return Qwen2_5_VLCausalLMOutputWithPast(
@@ -2984,7 +2521,6 @@ class Qwen2_5_VLForConditionalGeneration(Qwen2_5_VLPreTrainedModel, GenerationMi
                 attentions=outputs.attentions if 'outputs' in locals() and hasattr(outputs, 'attentions') else None,
                 rope_deltas=self.rope_deltas,
                 inputs_embeds=inputs_embeds,
-                ed114_decoder_attn_entropy=ed114_decoder_attn_entropy,
             )
 
     def prepare_inputs_for_generation(
