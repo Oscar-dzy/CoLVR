@@ -15,6 +15,7 @@
     </p>
     <p align="center">
         <a href="https://arxiv.org/abs/2605.08802"><img src='https://img.shields.io/badge/Paper-PDF-red?style=flat&logo=arXiv&logoColor=red' alt='Paper PDF'></a>
+        <a href="https://oscar-dzy.github.io/CoLVR-project-page/" target="_blank" rel="noopener noreferrer"><img alt="Project Page: CoLVR" src="https://img.shields.io/badge/%F0%9F%8C%90%20Project_Page-CoLVR-7760c9?style=flat" height="20" /></a>
         <a href="https://huggingface.co/collections/Oscar-dzy/colvr-models" target="_blank" rel="noopener noreferrer"><img alt="HF Model: CoLVR-Models" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Model-CoLVR_Models-ffc107?color=ffc107&logoColor=white" height="20" /></a>
         <a href="https://huggingface.co/datasets/Oscar-dzy/CoLVR-datasets" target="_blank" rel="noopener noreferrer"><img alt="HF Dataset: CoLVR-datasets" src="https://img.shields.io/badge/%F0%9F%A4%97%20_Dataset-CoLVR_datasets-ffc107?color=ffc107&logoColor=white" height="20" /></a>
 <p align="center">
@@ -170,14 +171,12 @@ VSP reports overall and per-level accuracy in the log. Jigsaw and Tetris also sa
 If you find this work useful, please use the following BibTeX. Thank you for your support!
 
 ```latex
-@misc{ding2026colvrenhancingexploratorylatent,
-      title={CoLVR: Enhancing Exploratory Latent Visual Reasoning via Contrastive Optimization}, 
-      author={Ziyang Ding and Linjian Meng and Yiming Wu and Yuhan Li and Yuhao Liu and Zhen Zhao},
-      year={2026},
-      eprint={2605.08802},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2605.08802}, 
+@inproceedings{ding2026colvr,
+  title = {CoLVR: Enhancing Exploratory Latent Visual Reasoning via Contrastive Optimization},
+  author = {Ding, Ziyang and Meng, Linjian and Wu, Yiming and Li, Yuhan and Liu, Yuhao and Zhao, Zhen},
+  booktitle = {The Fortieth Annual Conference on Neural Information Processing Systems},
+  year = {2026},
+  url = {https://openreview.net/forum?id=FdggkQpSHq}
 }
 ```
 
